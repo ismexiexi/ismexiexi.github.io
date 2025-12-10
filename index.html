@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>生日快乐·宽</title>
+    <meta charset="UTF-8">
+    <!-- 关键：移动端视口适配 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- 改用更稳定的jQuery CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.4/dist/jquery.min.js"></script>
+    <style>
+        * {
+            padding: 0;
+            margin: 0;
+            box-sizing: border-box;
+        }
+        html,
+        body {
+            height: 100vh; /* 适配移动端视口高度 */
+            background: #000;
+            overflow: hidden;
+            touch-action: none; /* 禁止移动端触摸滚动 */
+        }
+
+        .container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        /* 画布层级：确保蛋糕粒子在爱心下层但可见 */
+        canvas {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            left: 0;
+            top: 0;
+            display: block; /* 消除Canvas默认inline的空隙 */
+        }
+        #cakeParticlesCanvas { 
+            z-index: 98; 
+            background: transparent; /* 透明背景，不遮挡爱心 */
+        } 
+        #pinkboard { z-index: 99; }
+
+        /* 文本适配移动端 */
+        .heart-text {
+            position: absolute;
+            top: 48%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 100;
+            color: #ff6b9d;
+            font-family: "Microsoft Yahei", "Heiti SC", sans-serif;
+            text-align: center;
+            text-shadow: 0 0 10px rgba(255, 107, 157, 0.8);
+            pointer-events: none;
+            line-height: 1.5;
+            /* 移动端字体适配 */
+            h1 { font-size: 5vw !important; margin-bottom: 1rem; }
+            p { font-size: 3vw !important; opacity: 0.9; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <!-- 1. 蛋糕粒子画布（优先渲染） -->
+    <canvas id="cakeParticlesCanvas"></canvas>
+    <!-- 2. 爱心粒子画布 -->
+    <canvas id="pinkboard"></canvas>
+    <!-- 文本 -->
+    <div class="heart-text">
+        <h1>生日快乐</h1>
+        <p>宽宽</p>
+        <p>来自定向队大家庭的祝福</p>
+    </div>
+</div>
+
+<script>
+    /************************* 原有爱心粒子代码（仅修复变量声明） *************************/
+    var settings = {
+        particles: {
+            length: 500,
+            duration: 2,
+            velocity: 100,
+            effect: -0.75,
+            size: 30,
+        },
+    };
+
+    // 兼容动画API
+    (function () {
+        var b = 0;
+        var c = ["ms", "moz", "webkit", "o"];
+        for (var a = 0; a < c.length && !window.requestAnimationFrame; ++a) {
+            window.requestAnimationFrame = window[c[a] + "RequestAnimationFrame"];
+            window.cancelAnimationFrame =
+                window[c[a] + "CancelAnimationFrame"] ||
+                window[c[a] + "CancelRequestAnimationFrame"];
+        }
+        if (!window.requestAnimationFrame) {
+            window.requestAnimationFrame = function (h, e) {
+                var d = new Date().getTime();
+                var f = Math.max(0, 16 - (d - b));
+                var g = window.setTimeout(function () {
+                    h(d + f);
+                }, f);
+                b = d + f;
+                return g;
+            };
+        }
+        if (!window.cancelAnimationFrame) {
+            window.cancelAnimationFrame = function (d) {
+                clearTimeout(d);
+            };
+        }
+    })();
+
+    // Point类
+    var Point = (function () {
+        function Point(x, y) {
+            this.x = typeof x !== "undefined" ? x : 0;
+            this.y = typeof y !== "undefined" ? y : 0;
+        }
+        Point.prototype.clone = function () {
+            return new Point(this.x, this.y);
+        };
+        Point.prototype.length = function (length) {
+            if (typeof length == "undefined")
+                return Math.sqrt(this.x * this.x + this.y * this.y);
+            this.normalize();
+            this.x *= length;
+            this.y *= length;
+            return this;
+        };
+        Point.prototype.normalize = function () {
+            var length = this.length();
+            this.x /= length;
+            this.y /= length;
+            return this;
+        };
+        return Point;
+    })();
+
+    // Particle类
+    var Particle = (function () {
+        function Particle() {
+            this.position = new Point();
+            this.velocity = new Point();
+            this.acceleration = new Point();
+            this.age = 0;
+        }
+        Particle.prototype.initialize = function (x, y, dx, dy) {
+            this.position.x = x;
+            this.position.y = y;
+            this.velocity.x = dx;
+            this.velocity.y = dy;
+            this.acceleration.x = dx * settings.particles.effect;
+            this.acceleration.y = dy * settings.particles.effect;
+            this.age = 0;
+        };
+        Particle.prototype.update = function (deltaTime) {
+            this.position.x += this.velocity.x * deltaTime;
+            this.position.y += this.velocity.y * deltaTime;
+            this.velocity.x += this.acceleration.x * deltaTime;
+            this.velocity.y += this.acceleration.y * deltaTime;
+            this.age += deltaTime;
+        };
+        Particle.prototype.draw = function (context, image) {
+            function ease(t) {
+                return --t * t * t + 1;
+            }
+            var size = image.width * ease(this.age / settings.particles.duration);
+            context.globalAlpha = 1 - this.age / settings.particles.duration;
+            context.drawImage(
+                image,
+                this.position.x - size / 2,
+                this.position.y - size / 2,
+                size,
+                size
+            );
+        };
+        return Particle;
+    })();
+
+    // ParticlePool类（修复i未声明问题）
+    var ParticlePool = (function () {
+        var particles,
+            firstActive = 0,
+            firstFree = 0,
+            duration = settings.particles.duration;
+
+        function ParticlePool(length) {
+            particles = new Array(length);
+            for (var i = 0; i < particles.length; i++)
+                particles[i] = new Particle();
+        }
+        ParticlePool.prototype.add = function (x, y, dx, dy) {
+            particles[firstFree].initialize(x, y, dx, dy);
+            firstFree++;
+            if (firstFree == particles.length) firstFree = 0;
+            if (firstActive == firstFree) firstActive++;
+            if (firstActive == particles.length) firstActive = 0;
+        };
+        ParticlePool.prototype.update = function (deltaTime) {
+            // 修复：声明var i
+            var i;
+            if (firstActive < firstFree) {
+                for (i = firstActive; i < firstFree; i++)
+                    particles[i].update(deltaTime);
+            }
+            if (firstFree < firstActive) {
+                for (i = firstActive; i < particles.length; i++)
+                    particles[i].update(deltaTime);
+                for (i = 0; i < firstFree; i++) particles[i].update(deltaTime);
+            }
+            while (
+                particles[firstActive].age >= duration &&
+                firstActive != firstFree
+            ) {
+                firstActive++;
+                if (firstActive == particles.length) firstActive = 0;
+            }
+        };
+        ParticlePool.prototype.draw = function (context, image) {
+            // 修复：声明var i
+            var i;
+            if (firstActive < firstFree) {
+                for (i = firstActive; i < firstFree; i++)
+                    particles[i].draw(context, image);
+            }
+            if (firstFree < firstActive) {
+                for (i = firstActive; i < particles.length; i++)
+                    particles[i].draw(context, image);
+                for (i = 0; i < firstFree; i++) particles[i].draw(context, image);
+            }
+        };
+        return ParticlePool;
+    })();
+
+    // 爱心渲染逻辑
+    (function (canvas) {
+        var context = canvas.getContext("2d"),
+            particles = new ParticlePool(settings.particles.length),
+            particleRate =
+                settings.particles.length / settings.particles.duration,
+            time;
+
+        function pointOnHeart(t) {
+            return new Point(
+                160 * Math.pow(Math.sin(t), 3),
+                130 * Math.cos(t) -
+                50 * Math.cos(2 * t) -
+                20 * Math.cos(3 * t) -
+                10 * Math.cos(4 * t) +
+                25
+            );
+        }
+
+        // 爱心粒子图片
+        var image = (function () {
+            var canvas = document.createElement("canvas"),
+                context = canvas.getContext("2d");
+            canvas.width = settings.particles.size;
+            canvas.height = settings.particles.size;
+            function to(t) {
+                var point = pointOnHeart(t);
+                point.x =
+                    settings.particles.size / 2 +
+                    (point.x * settings.particles.size) / 350;
+                point.y =
+                    settings.particles.size / 2 -
+                    (point.y * settings.particles.size) / 350;
+                return point;
+            }
+            context.beginPath();
+            var t = -Math.PI;
+            var point = to(t);
+            context.moveTo(point.x, point.y);
+            while (t < Math.PI) {
+                t += 0.01;
+                point = to(t);
+                context.lineTo(point.x, point.y);
+            }
+            context.closePath();
+            context.fillStyle = "#ea80b0";
+            context.fill();
+            var image = new Image();
+            image.src = canvas.toDataURL();
+            return image;
+        })();
+
+        function drawCenterText() {
+            context.save();
+            context.fillStyle = '#ff80ab';
+            context.font = 'bold 2rem "Microsoft Yahei", sans-serif';
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+            context.shadowColor = 'rgba(255, 128, 171, 0.8)';
+            context.shadowBlur = 10;
+            context.restore();
+        }
+
+        function render() {
+            requestAnimationFrame(render);
+            var newTime = new Date().getTime() / 1000,
+                deltaTime = newTime - (time || newTime);
+            time = newTime;
+
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            drawCenterText();
+
+            var amount = particleRate * deltaTime;
+            for (var i = 0; i < amount; i++) {
+                var pos = pointOnHeart(Math.PI - 2 * Math.PI * Math.random());
+                var dir = pos.clone().length(settings.particles.velocity);
+                particles.add(
+                    canvas.width / 2 + pos.x,
+                    canvas.height / 2 - pos.y,
+                    dir.x,
+                    -dir.y
+                );
+            }
+
+            particles.update(deltaTime);
+            particles.draw(context, image);
+        }
+
+        // 适配移动端resize
+        function onResize() {
+            var w = document.documentElement.clientWidth;
+            var h = document.documentElement.clientHeight;
+            canvas.width = w;
+            canvas.height = h;
+        }
+        window.addEventListener('resize', onResize);
+        onResize();
+        render();
+    })(document.getElementById("pinkboard"));
+
+    /************************* 适配移动端的蛋糕粒子特效 *************************/
+    var CakeParticleRenderer = {
+        // 移动端适配配置
+        INIT_COUNT: 80,        // 手机屏幕小，增加数量更明显
+        MAX_ADD_INTERVAL: 15,  // 更快新增粒子
+        SIZE_RANGE: [4, 10],   // 手机屏幕适配的粒子大小
+        SPEED_RANGE: [0.1, 0.5], // 移动端更慢的速度，更顺滑
+        ROTATE_SPEED: 0.005,   // 更慢旋转，不晃眼
+        AVOID_RADIUS: 100,     // 手机爱心区域更小，适配屏幕
+
+        init: function() {
+            // 调试日志：确认初始化
+            console.log("蛋糕粒子开始初始化");
+            this.canvas = document.getElementById('cakeParticlesCanvas');
+            if (!this.canvas) {
+                console.error("蛋糕粒子画布不存在");
+                return;
+            }
+            this.ctx = this.canvas.getContext('2d');
+            if (!this.ctx) {
+                console.error("不支持Canvas 2D");
+                return;
+            }
+            
+            // 移动端resize适配
+            this.resize();
+            window.addEventListener('resize', () => this.resize());
+            
+            this.particles = [];
+            this.addInterval = 0;
+            this.createParticles();
+            this.render();
+            console.log("蛋糕粒子初始化完成，数量：", this.particles.length);
+        },
+
+        // 适配移动端视口尺寸
+        resize: function() {
+            var w = document.documentElement.clientWidth;
+            var h = document.documentElement.clientHeight;
+            this.canvas.width = w;
+            this.canvas.height = h;
+            this.centerX = w / 2;
+            this.centerY = h / 2;
+        },
+
+        // 生成单个蛋糕粒子（适配手机屏幕）
+        createSingleCake: function() {
+            // 随机位置：避开爱心区域，适配手机屏幕
+            var x, y;
+            do {
+                x = Math.random() * this.canvas.width;
+                y = Math.random() * this.canvas.height;
+            } while (Math.sqrt(Math.pow(x - this.centerX, 2) + Math.pow(y - this.centerY, 2)) < this.AVOID_RADIUS);
+
+            const size = this.SIZE_RANGE[0] + Math.random() * (this.SIZE_RANGE[1] - this.SIZE_RANGE[0]);
+            return {
+                x: x,
+                y: y,
+                size: size,
+                vx: (Math.random() - 0.5) * this.SPEED_RANGE[1],
+                vy: Math.random() * this.SPEED_RANGE[0] + 0.05,
+                rotate: Math.random() * Math.PI * 2,
+                alpha: 0.7 + Math.random() * 0.2, // 更高透明度，更明显
+                color: ['#ea80b0', '#ff99bb', '#ff6b9d'][Math.floor(Math.random()*3)]
+            };
+        },
+
+        // 兼容移动端：替换roundRect为手动绘制圆角矩形
+        drawRoundedRect: function(ctx, x, y, width, height, radius) {
+            ctx.beginPath();
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + width - radius, y);
+            ctx.arcTo(x + width, y, x + width, y + radius, radius);
+            ctx.lineTo(x + width, y + height - radius);
+            ctx.arcTo(x + width, y + height, x + width - radius, y + height, radius);
+            ctx.lineTo(x + radius, y + height);
+            ctx.arcTo(x, y + height, x, y + height - radius, radius);
+            ctx.lineTo(x, y + radius);
+            ctx.arcTo(x, y, x + radius, y, radius);
+            ctx.closePath();
+        },
+
+        // 绘制蛋糕（兼容移动端）
+        drawCake: function(p) {
+            this.ctx.save();
+            this.ctx.globalAlpha = p.alpha;
+            this.ctx.translate(p.x, p.y);
+            this.ctx.rotate(p.rotate);
+
+            // 蛋糕底座（兼容圆角矩形）
+            this.ctx.fillStyle = p.color;
+            this.drawRoundedRect(this.ctx, -p.size/2, -p.size/2 + p.size*0.2, p.size, p.size*0.6, 1.5);
+            this.ctx.fill();
+
+            // 奶油层
+            this.ctx.fillStyle = '#ffccdd';
+            this.drawRoundedRect(this.ctx, -p.size/2 + 1.5, -p.size/2, p.size - 3, p.size*0.2, 1);
+            this.ctx.fill();
+
+            // 小蜡烛
+            this.ctx.fillStyle = '#ff6b9d';
+            this.ctx.fillRect(-0.8, -p.size/2 - 2, 1.6, 4);
+
+            // 蜡烛火焰
+            this.ctx.fillStyle = '#fff0f5';
+            this.ctx.beginPath();
+            this.ctx.arc(0, -p.size/2 - 4, 1.2, 0, Math.PI * 2);
+            this.ctx.fill();
+
+            this.ctx.restore();
+        },
+
+        createParticles: function() {
+            for (let i = 0; i < this.INIT_COUNT; i++) {
+                this.particles.push(this.createSingleCake());
+            }
+        },
+
+        updateParticles: function() {
+            this.particles.forEach(p => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.rotate += this.ROTATE_SPEED;
+
+                // 边界重置（适配手机屏幕）
+                if (p.y > this.canvas.height + p.size) p.y = -p.size;
+                if (p.x < -p.size) p.x = this.canvas.width + p.size;
+                if (p.x > this.canvas.width + p.size) p.x = -p.size;
+            });
+
+            // 新增粒子
+            if (this.addInterval++ > this.MAX_ADD_INTERVAL) {
+                this.particles.push(this.createSingleCake());
+                this.addInterval = 0;
+                if (this.particles.length > 120) this.particles.shift();
+            }
+        },
+
+        render: function() {
+            // 确保动画持续运行
+            var _this = this;
+            requestAnimationFrame(function() { _this.render(); });
+            
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            this.updateParticles();
+            // 确保粒子绘制
+            this.particles.forEach(function(p) {
+                _this.drawCake(p);
+            });
+        }
+    };
+
+    /************************* 修复初始化时机（关键） *************************/
+    // 同时监听DOM加载和窗口加载，确保移动端初始化成功
+    function initAll() {
+        try {
+            CakeParticleRenderer.init();
+            console.log("所有特效初始化完成");
+        } catch (e) {
+            console.error("初始化失败：", e);
+            // 降级：延迟重试
+            setTimeout(() => CakeParticleRenderer.init(), 500);
+        }
+    }
+
+    // 兼容移动端初始化时机
+    if (document.readyState === "complete") {
+        initAll();
+    } else {
+        window.addEventListener("load", initAll);
+        document.addEventListener("DOMContentLoaded", initAll);
+    }
+</script>
+</body>
+</html>
